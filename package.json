@@ -16,7 +16,11 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
-    "vue": "^3.5.26"
+    "@fontsource/roboto": "^5.2.9",
+    "@mdi/js": "^7.4.47",
+    "vite-plugin-vuetify": "^2.1.2",
+    "vue": "^3.5.26",
+    "vuetify": "^3.11.6"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.3",
@@ -31,6 +35,7 @@
     "npm-run-all2": "^8.0.4",
     "prettier": "3.7.4",
     "typescript": "~5.9.3",
+    "unplugin-fonts": "^1.4.0",
     "vite": "^7.3.0",
     "vite-plugin-vue-devtools": "^8.0.5",
     "vue-tsc": "^3.2.1"
