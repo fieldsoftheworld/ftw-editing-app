@@ -1,0 +1,52 @@
+{
+  "version": 8,
+  "name": "FTW Editing Map",
+  "sources": {
+    "cloudless": {
+      "type": "raster",
+      "tiles": [
+        "https://tiles.maps.eox.at/wmts?layer=s2cloudless-2024_3857&style=default&tilematrixset=GoogleMapsCompatible&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image%2Fjpeg&TileMatrix={z}&TileCol={x}&TileRow={y}"
+      ],
+      "maxzoom": 18,
+      "tileSize": 256,
+      "attribution": "Sentinel-2 cloudless imagery by <a href=\"https://eox.at\">EOX</a>"
+    },
+    "mgrs": {
+      "type": "vector",
+      "url": "pmtiles://https://data.source.coop/ftw/ftw-grid/ftw_grid.pmtiles"
+    },
+    "labels": {
+      "type": "raster",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+        "https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+        "https://c.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+        "https://d.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png"
+      ],
+      "maxzoom": 20,
+      "attribution": "&copy; <a href=\"http://www.openstreetmap.org/copyright\">OpenStreetMap</a>, &copy; <a href=\"https://carto.com/attributions\">CARTO</a>"
+    }
+  },
+  "layers": [
+    {
+      "id": "cloudless",
+      "type": "raster",
+      "source": "cloudless"
+    },
+    {
+      "id": "mgrs",
+      "type": "fill",
+      "source": "mgrs",
+      "source-layer": "ftw_grid4",
+      "paint": {
+        "fill-color": "rgba(255, 0, 0, 0.1)",
+        "fill-outline-color": "rgba(255, 0, 0, 0.5)"
+      }
+    },
+    {
+      "id": "labels",
+      "type": "raster",
+      "source": "labels"
+    }
+  ]
+}
