@@ -1,0 +1,32 @@
+:root,
+:host {
+  --ol-background-color: rgba(0, 0, 0, 0.6);
+  --ol-subtle-background-color: rgba(0, 0, 0, 0.2);
+  --ol-foreground-color: #ffffff;
+  --ol-subtle-foreground-color: #dddddd;
+  --ol-partial-background-color: rgba(0, 0, 0, 0.75);
+}
+
+.ol-zoom {
+  top: auto;
+  left: auto;
+  bottom: 2em;
+  right: 0.5em;
+}
+
+.ol-touch .ol-zoom {
+  bottom: 3em;
+}
+
+.ol-scale-line {
+  bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+.ol-scale-line-inner {
+  margin-top: 0;
+  margin-bottom: 2px;
+}
+.ol-attribution ul {
+  margin: 1px;
+  max-width: calc(100vw - 150px);
+}

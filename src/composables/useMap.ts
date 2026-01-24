@@ -2,7 +2,7 @@ import 'ol/ol.css';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import Group from 'ol/layer/Group';
-import { defaults as defaultControls } from 'ol/control';
+import { defaults as defaultControls, ScaleLine } from 'ol/control';
 import { apply } from 'ol-mapbox-style';
 import { register as registerPMTilesProtocol } from 'pmtiles-protocol';
 
@@ -13,7 +13,7 @@ apply(mgrs, './style.json');
 
 let map: Map;
 function createMapInstance() {
-  return new Map({
+  const map = new Map({
     controls: defaultControls({ attributionOptions: { collapsible: false } }),
     layers: [mgrs],
     view: new View({
@@ -21,6 +21,8 @@ function createMapInstance() {
       zoom: 2,
     }),
   });
+  map.addControl(new ScaleLine());
+  return map;
 }
 
 export function useMap() {
