@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import TheMap from '@/components/TheMap.vue';
 import TheTitle from '@/components/TheTitle.vue';
+import TheWizard from '@/components/TheWizard.vue';
 </script>
 
 <template>
@@ -8,6 +9,7 @@ import TheTitle from '@/components/TheTitle.vue';
     <v-main class="fill-height position-relative">
       <TheMap />
       <TheTitle />
+      <TheWizard />
     </v-main>
   </v-app>
 </template>

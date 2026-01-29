@@ -5,7 +5,7 @@ import { mdiInformation } from '@mdi/js';
 <template>
   <div class="header-container position-absolute top-0 w-100 d-flex justify-center">
     <v-expansion-panels class="pointer-events-auto panel-width" flat bg-color="transparent">
-      <v-expansion-panel class="rounded-b rounded-t-0" flat bg-color="rgba(0, 0, 0, 0.75)">
+      <v-expansion-panel class="rounded-b rounded-t-0" bg-color="rgba(0, 0, 0, 0.75)">
         <v-expansion-panel-title class="pt-0 pb-0" :expand-icon="mdiInformation">
           <span class="text-h6 mr-4 text-no-wrap">Fields of The World: Editor</span>
         </v-expansion-panel-title>
@@ -21,7 +21,7 @@ import { mdiInformation } from '@mdi/js';
 
 <style scoped>
 .header-container {
-  z-index: 1;
+  z-index: 2;
   pointer-events: none;
 }
 
