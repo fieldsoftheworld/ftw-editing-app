@@ -34,13 +34,48 @@
       "source": "cloudless"
     },
     {
-      "id": "mgrs",
+      "id": "mgrs-dim",
       "type": "fill",
       "source": "mgrs",
       "source-layer": "ftw_grid4",
       "paint": {
-        "fill-color": "rgba(255, 0, 0, 0.1)",
-        "fill-outline-color": "rgba(255, 0, 0, 0.5)"
+        "fill-color": "rgba(0, 0, 0, 1)",
+        "fill-opacity": [
+          "case",
+          [
+            "boolean",
+            [
+              "feature-state",
+              "selected"
+            ],
+            false
+          ],
+          0,
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "mgrs",
+      "type": "line",
+      "source": "mgrs",
+      "source-layer": "ftw_grid4",
+      "paint": {
+        "line-color": "rgba(0, 255, 255, 1)",
+        "line-width": 1.2,
+        "line-opacity": [
+          "case",
+          [
+            "boolean",
+            [
+              "feature-state",
+              "selected"
+            ],
+            false
+          ],
+          1,
+          0.3
+        ]
       }
     },
     {

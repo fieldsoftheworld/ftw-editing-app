@@ -46,3 +46,22 @@ npm run build
 ```sh
 npm run lint
 ```
+
+## Composable Design Pattern
+
+We separate the **consumer API** (for components) from the **system API** (for initialization/inter-module logic) in composables.
+
+- **`use*` functions** (e.g., `useGrid`): Return only what Vue components need (refs, computed properties).
+- **Standalone exports** (e.g., `initGrid`): Handle initialization or logic required by other composables/modules, but not by UI components.
+
+Example `useGrid.ts`:
+
+```ts
+// System API: Imported by useMap.ts
+export function initGrid(layer, map) { ... }
+
+// Consumer API: Imported by components
+export function useGrid() {
+  return { gridVisible };
+}
+```

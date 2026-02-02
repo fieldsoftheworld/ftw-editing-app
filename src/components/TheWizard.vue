@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useGrid } from '@/composables/useGrid';
+
+const { gridVisible } = useGrid();
 
 const panel = ref(['area-selection']);
 </script>
@@ -8,8 +11,13 @@ const panel = ref(['area-selection']);
   <div class="wizard-container d-flex flex-column pl-3">
     <v-expansion-panels v-model="panel" class="pointer-events-auto" bg-color="transparent">
       <v-expansion-panel value="area-selection" bg-color="rgba(0, 0, 0, 0.75)">
-        <v-expansion-panel-title>1. Area selection</v-expansion-panel-title>
-        <v-expansion-panel-text> Click on the map to select an area. </v-expansion-panel-text>
+        <v-expansion-panel-title>Area</v-expansion-panel-title>
+        <v-expansion-panel-text v-if="!gridVisible">
+          Zoom in or click on the map to see the area grid
+        </v-expansion-panel-text>
+        <v-expansion-panel-text v-else>
+          Click on a grid cell to start editing
+        </v-expansion-panel-text>
       </v-expansion-panel>
     </v-expansion-panels>
   </div>
