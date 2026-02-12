@@ -11,7 +11,7 @@
       "tileSize": 256,
       "attribution": "Sentinel-2 cloudless imagery by <a href=\"https://eox.at\">EOX</a>"
     },
-    "mgrs": {
+    "ftw-grid": {
       "type": "vector",
       "url": "pmtiles://https://data.source.coop/ftw/ftw-grid/ftw_grid.pmtiles"
     },
@@ -34,9 +34,9 @@
       "source": "cloudless"
     },
     {
-      "id": "mgrs-dim",
+      "id": "ftw-grid-dim",
       "type": "fill",
-      "source": "mgrs",
+      "source": "ftw-grid",
       "source-layer": "ftw_grid4",
       "paint": {
         "fill-color": "rgba(0, 0, 0, 1)",
@@ -51,14 +51,14 @@
             false
           ],
           0,
-          0.3
+          0.4
         ]
       }
     },
     {
-      "id": "mgrs",
+      "id": "ftw-grid",
       "type": "line",
-      "source": "mgrs",
+      "source": "ftw-grid",
       "source-layer": "ftw_grid4",
       "paint": {
         "line-color": "rgba(0, 255, 255, 1)",
