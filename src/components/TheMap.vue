@@ -6,7 +6,6 @@ const { map } = useMap();
 
 const mapContainer = ref<HTMLElement | null>();
 
-let disableAreaSelection: () => void;
 onMounted(() => {
   map.setTarget(mapContainer.value!);
 });
