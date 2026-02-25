@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { mdiVectorLine, mdiVectorPolygon } from '@mdi/js';
+import { mdiDeleteOutline, mdiVectorLine, mdiVectorPolygon } from '@mdi/js';
 import { useGrid } from '@/composables/useGrid';
+import { useEdit } from '@/composables/useEdit';
 
 const { gridVisible, selectedGridCellId } = useGrid();
+const { editMode } = useEdit();
 
 const panel = ref<string[]>([]);
 
@@ -14,10 +16,15 @@ watch(
       panel.value = ['edit'];
     } else {
       panel.value = ['area-selection'];
+      editMode.value = null;
     }
   },
   { immediate: true },
 );
+
+function setMode(mode: 'draw' | 'split' | 'delete') {
+  editMode.value = editMode.value === mode ? null : mode;
+}
 </script>
 
 <template>
@@ -41,14 +48,37 @@ watch(
         <v-expansion-panel-text v-else>
           Draw the outlines of field boundaries, then split them into individual fields.
           <div class="d-flex justify-space-evenly mt-4">
-            <v-tooltip text="Draw field boundaries" location="bottom">
+            <v-tooltip text="Draw/modify field boundaries" location="bottom">
               <template v-slot:activator="{ props }">
-                <v-btn :icon="mdiVectorPolygon" v-bind="props" />
+                <v-btn
+                  :icon="mdiVectorPolygon"
+                  v-bind="props"
+                  :color="editMode === 'draw' ? 'primary' : undefined"
+                  :variant="editMode === 'draw' ? 'flat' : 'elevated'"
+                  @click="setMode('draw')"
+                />
               </template>
             </v-tooltip>
             <v-tooltip text="Split fields" location="bottom">
               <template v-slot:activator="{ props }">
-                <v-btn :icon="mdiVectorLine" v-bind="props" />
+                <v-btn
+                  :icon="mdiVectorLine"
+                  v-bind="props"
+                  :color="editMode === 'split' ? 'primary' : undefined"
+                  :variant="editMode === 'split' ? 'flat' : 'elevated'"
+                  @click="setMode('split')"
+                />
+              </template>
+            </v-tooltip>
+            <v-tooltip text="Delete field" location="bottom">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  :icon="mdiDeleteOutline"
+                  v-bind="props"
+                  :color="editMode === 'delete' ? 'error' : undefined"
+                  :variant="editMode === 'delete' ? 'flat' : 'elevated'"
+                  @click="setMode('delete')"
+                />
               </template>
             </v-tooltip>
           </div>
