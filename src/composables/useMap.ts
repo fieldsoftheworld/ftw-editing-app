@@ -11,7 +11,7 @@ import RenderFeature from 'ol/render/Feature';
 registerPMTilesProtocol();
 
 // Extend RenderFeature to fall back to the `id` property if the internal id is not set
-// This is needed because the mgrs grid features have their id set as a id property only
+// This is needed because the ftw-grid grid features have their id set as a id property only
 RenderFeature.prototype.getId = function () {
   return this.get('id') ?? this.getProperties().id;
 };
@@ -19,7 +19,7 @@ RenderFeature.prototype.getId = function () {
 let map: Map;
 const mapGroup = new Group();
 apply(mapGroup, './style.json').then(() => {
-  const grid = getLayer(mapGroup, 'mgrs') as VectorTileLayer;
+  const grid = getLayer(mapGroup, 'ftw-grid') as VectorTileLayer;
   initGrid(grid, map, mapGroup);
 });
 

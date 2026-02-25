@@ -1,14 +1,15 @@
 import { ref } from 'vue';
 import type VectorTileLayer from 'ol/layer/VectorTile';
 import type Map from 'ol/Map';
-import type { MapBrowserEvent } from 'ol';
+import type MapBrowserEvent from 'ol/MapBrowserEvent';
 import { setFeatureState } from 'ol-mapbox-style';
 import type LayerGroup from 'ol/layer/Group';
-import { unByKey } from 'ol/Observable';
+import type { FeatureLike } from 'ol/Feature';
 
 const gridVisible = ref(false);
+const selectedGridCellId = ref<string | undefined>(undefined);
+
 let grid: VectorTileLayer | undefined;
-let selectedGridCellId: string | undefined;
 
 const updateGridVisibility = () => {
   if (grid) {
@@ -16,23 +17,47 @@ const updateGridVisibility = () => {
   }
 };
 
+const zoomToFeature = (map: Map, feature: FeatureLike) => {
+  const geometry = feature.getGeometry();
+  if (!geometry) {
+    return;
+  }
+  const view = map.getView();
+  const size = map.getSize();
+  if (!size) {
+    return;
+  }
+  const [width, height] = size;
+  // Padding for 75% viewport usage (12.5% padding on each side)
+  const padding = [height! * 0.125, width! * 0.125, height! * 0.125, width! * 0.125];
+  view.fit(geometry.getExtent(), {
+    padding,
+    duration: 500,
+  });
+};
+
 const selectGridCell = async (event: MapBrowserEvent, mapGroup: LayerGroup) => {
   if (!grid) {
     return;
   }
   const map = event.target as Map;
-  const feature = await map.forEachFeatureAtPixel(event.pixel, (feature) => feature, {
+  const feature = map.forEachFeatureAtPixel(event.pixel, (feature) => feature, {
     layerFilter: (layer) => layer === grid,
   });
-  if (selectedGridCellId) {
-    setFeatureState(mapGroup, { source: 'mgrs', id: selectedGridCellId }, { selected: null });
-    selectedGridCellId = undefined;
+  if (selectedGridCellId.value) {
+    setFeatureState(
+      mapGroup,
+      { source: 'ftw-grid', id: selectedGridCellId.value },
+      { selected: null },
+    );
+    selectedGridCellId.value = undefined;
   }
   if (!feature) {
     return;
   }
-  selectedGridCellId = feature.get('id');
-  setFeatureState(mapGroup, { source: 'mgrs', id: feature.get('id') }, { selected: true });
+  selectedGridCellId.value = feature.get('id');
+  setFeatureState(mapGroup, { source: 'ftw-grid', id: feature.get('id') }, { selected: true });
+  zoomToFeature(map, feature);
 };
 
 const enableGridCellSelection = (event: MapBrowserEvent) => {
@@ -59,6 +84,6 @@ export function initGrid(layer: VectorTileLayer, map: Map, mapGroup: LayerGroup)
 export function useGrid() {
   return {
     gridVisible,
-    enableGridCellSelection,
+    selectedGridCellId,
   };
 }
