@@ -6,6 +6,7 @@ import { apply, getLayer } from 'ol-mapbox-style';
 import { register as registerPMTilesProtocol } from 'pmtiles-protocol';
 import type VectorTileLayer from 'ol/layer/VectorTile';
 import { initGrid } from './useGrid';
+import { initEdit } from './useEdit';
 import RenderFeature from 'ol/render/Feature';
 
 registerPMTilesProtocol();
@@ -21,6 +22,7 @@ const mapGroup = new Group();
 apply(mapGroup, './style.json').then(() => {
   const grid = getLayer(mapGroup, 'ftw-grid') as VectorTileLayer;
   initGrid(grid, map, mapGroup);
+  initEdit(map);
 });
 
 function createMapInstance() {
