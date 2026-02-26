@@ -19,6 +19,7 @@
   "dependencies": {
     "@fontsource/roboto": "^5.2.9",
     "@mdi/js": "^7.4.47",
+    "mgrs": "^2.1.0",
     "ol": "^10.7.0",
     "ol-mapbox-style": "^13.2.0",
     "pmtiles-protocol": "^1.1.2",
