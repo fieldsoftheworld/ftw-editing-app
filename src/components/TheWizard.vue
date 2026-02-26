@@ -5,6 +5,7 @@ import {
   mdiDownload,
   mdiDrawPen,
   mdiFileUploadOutline,
+  mdiUndo,
   mdiVectorLine,
   mdiVectorPolygon,
   mdiVectorUnion,
@@ -13,7 +14,7 @@ import { useGrid } from '@/composables/useGrid';
 import { useEdit } from '@/composables/useEdit';
 
 const { gridVisible, selectedGridCellId } = useGrid();
-const { editMode, importGeoJSON, exportGeoJSON } = useEdit();
+const { editMode, importGeoJSON, exportGeoJSON, canUndo, undo } = useEdit();
 
 const panel = ref<string[]>([]);
 const sourceChosen = ref(false);
@@ -25,14 +26,18 @@ watch(
       panel.value = ['edit'];
     } else if (sourceChosen.value) {
       panel.value = ['area-selection'];
-      editMode.value = null;
     } else {
       panel.value = ['source'];
-      editMode.value = null;
     }
   },
   { immediate: true },
 );
+
+watch(panel, (val) => {
+  if (!val.includes('edit')) {
+    editMode.value = null;
+  }
+});
 
 function setMode(mode: 'draw' | 'split' | 'delete' | 'merge') {
   editMode.value = editMode.value === mode ? null : mode;
@@ -143,6 +148,17 @@ function openFilePicker() {
                   :color="editMode === 'merge' ? 'warning' : undefined"
                   :variant="editMode === 'merge' ? 'flat' : 'elevated'"
                   @click="setMode('merge')"
+                />
+              </template>
+            </v-tooltip>
+            <v-tooltip text="Undo" location="bottom">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  :icon="mdiUndo"
+                  v-bind="props"
+                  :disabled="!canUndo"
+                  variant="elevated"
+                  @click="undo()"
                 />
               </template>
             </v-tooltip>

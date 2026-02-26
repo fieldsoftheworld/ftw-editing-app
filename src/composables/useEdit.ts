@@ -12,9 +12,7 @@ import type {
   MultiPolygon as GeoJSONMultiPolygon,
 } from 'geojson';
 import polygonClipping from 'polygon-clipping';
-import { Feature as OlFeature } from 'ol';
 import type { Feature } from 'ol';
-import { LineString } from 'ol/geom';
 import type { Polygon } from 'ol/geom';
 import type Map from 'ol/Map';
 import type MapBrowserEvent from 'ol/MapBrowserEvent';
@@ -51,6 +49,30 @@ const splitLayer = new VectorLayer({
 const gridSnapSource = new VectorSource();
 
 const format = new GeoJSON();
+
+// Undo stack — stores GeoJSON snapshots of editSource before each action
+const undoStack: object[] = [];
+const canUndo = ref(false);
+
+function saveSnapshot() {
+  if (!map) return;
+  const geojson = format.writeFeaturesObject(editSource.getFeatures(), {
+    featureProjection: map.getView().getProjection(),
+  });
+  undoStack.push(geojson);
+  canUndo.value = true;
+}
+
+function undo() {
+  if (!map || undoStack.length === 0) return;
+  const geojson = undoStack.pop()!;
+  canUndo.value = undoStack.length > 0;
+  editSource.clear();
+  const features = format.readFeatures(geojson, {
+    featureProjection: map.getView().getProjection(),
+  });
+  editSource.addFeatures(features);
+}
 
 let map: Map | undefined;
 let drawPolygon: Draw | undefined;
@@ -121,10 +143,103 @@ function activateDrawMode() {
   snap = new Snap({ source: editSource });
   gridSnap = new Snap({ source: gridSnapSource });
 
+  drawPolygon.on('drawend', () => saveSnapshot());
+  modify.on('modifystart', () => saveSnapshot());
+
   map.addInteraction(modify);
   map.addInteraction(drawPolygon);
   map.addInteraction(snap);
   map.addInteraction(gridSnap);
+}
+
+/**
+ * Create a buffer polygon around a line by unioning per-segment rectangles.
+ * Robust against sharp turns (no miter issues) and duplicate vertices.
+ */
+function bufferLine(
+  lineCoords: number[][],
+  distance: number,
+): polygonClipping.MultiPolygon | undefined {
+  // Remove consecutive duplicate vertices
+  const coords: number[][] = [lineCoords[0]!];
+  for (let i = 1; i < lineCoords.length; i++) {
+    const prev = coords[coords.length - 1]!;
+    const curr = lineCoords[i]!;
+    if (curr[0] !== prev[0] || curr[1] !== prev[1]) {
+      coords.push(curr);
+    }
+  }
+  if (coords.length < 2) return undefined;
+
+  // Create a rectangle for each segment
+  const rectangles: polygonClipping.Polygon[] = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const x1 = coords[i]![0]!;
+    const y1 = coords[i]![1]!;
+    const x2 = coords[i + 1]![0]!;
+    const y2 = coords[i + 1]![1]!;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) continue;
+    const nx = (-dy / len) * distance;
+    const ny = (dx / len) * distance;
+    // Extend the rectangle by half the buffer width along the segment direction
+    const ex = (dx / len) * distance;
+    const ey = (dy / len) * distance;
+    const rect: polygonClipping.Polygon = [
+      [
+        [x1 - ex + nx, y1 - ey + ny],
+        [x2 + ex + nx, y2 + ey + ny],
+        [x2 + ex - nx, y2 + ey - ny],
+        [x1 - ex - nx, y1 - ey - ny],
+        [x1 - ex + nx, y1 - ey + ny],
+      ],
+    ];
+    rectangles.push(rect);
+  }
+
+  if (rectangles.length === 0) return undefined;
+  if (rectangles.length === 1) return [rectangles[0]!];
+  return polygonClipping.union(rectangles[0]!, ...rectangles.slice(1));
+}
+
+/**
+ * Snap a point to the nearest position on a polyline if within threshold.
+ * Modifies the point in place so that vertices on both sides of the split
+ * gap collapse to the exact same coordinates on the split line.
+ */
+function snapToLine(point: number[], lineCoords: number[][], thresholdSq: number): void {
+  let minDistSq = Infinity;
+  let closestX = 0;
+  let closestY = 0;
+
+  for (let i = 0; i < lineCoords.length - 1; i++) {
+    const x1 = lineCoords[i]![0]!;
+    const y1 = lineCoords[i]![1]!;
+    const x2 = lineCoords[i + 1]![0]!;
+    const y2 = lineCoords[i + 1]![1]!;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+    const t =
+      lenSq === 0
+        ? 0
+        : Math.max(0, Math.min(1, ((point[0]! - x1) * dx + (point[1]! - y1) * dy) / lenSq));
+    const px = x1 + t * dx;
+    const py = y1 + t * dy;
+    const distSq = (point[0]! - px) ** 2 + (point[1]! - py) ** 2;
+    if (distSq < minDistSq) {
+      minDistSq = distSq;
+      closestX = px;
+      closestY = py;
+    }
+  }
+
+  if (minDistSq <= thresholdSq) {
+    point[0] = closestX;
+    point[1] = closestY;
+  }
 }
 
 function splitPolygon(splitFeature: Feature) {
@@ -137,16 +252,11 @@ function splitPolygon(splitFeature: Feature) {
   });
   const lineCoords = (lineGeoJSON.geometry as GeoJSONLineString).coordinates;
 
-  // Create a thin polygon from the line (same technique as PoC)
-  const thinPoly: [number, number][][] = [
-    [
-      ...lineCoords.map((c) => [c[0]!, c[1]!] as [number, number]),
-      ...lineCoords
-        .slice()
-        .reverse()
-        .map((c) => [c[0]! + 1e-13, c[1]! + 1e-13] as [number, number]),
-    ],
-  ];
+  // Create a thin buffer polygon around the line
+  const bufferDistance = 1e-8;
+  const bufferPoly = bufferLine(lineCoords, bufferDistance);
+  if (!bufferPoly) return;
+  const snapThresholdSq = (bufferDistance * 3) ** 2;
 
   const featuresToAdd: Feature[] = [];
   const featuresToRemove: Feature[] = [];
@@ -170,20 +280,22 @@ function splitPolygon(splitFeature: Feature) {
 
     const result = polygonClipping.difference(
       polyCoords as polygonClipping.MultiPolygon,
-      [thinPoly] as unknown as polygonClipping.MultiPolygon,
+      bufferPoly,
     );
 
     if (result.length === 0) continue;
 
-    // Clean up result: round coordinates and remove duplicate/degenerate rings
+    // Snap vertices near the split line back onto it to collapse the buffer gap,
+    // so result polygons share exact boundary vertices along the split.
     for (const poly of result) {
       for (let r = poly.length - 1; r >= 0; r--) {
         const ring = poly[r]!;
-        for (let c = ring.length - 1; c >= 0; c--) {
-          const point = ring[c]!;
-          point[0] = Math.round(point[0] * 1e7) / 1e7;
-          point[1] = Math.round(point[1] * 1e7) / 1e7;
-          if (c < ring.length - 1 && point[0] === ring[c + 1]![0] && point[1] === ring[c + 1]![1]) {
+        for (const point of ring) {
+          snapToLine(point, lineCoords, snapThresholdSq);
+        }
+        // Remove consecutive duplicate vertices
+        for (let c = ring.length - 1; c > 0; c--) {
+          if (ring[c]![0] === ring[c - 1]![0] && ring[c]![1] === ring[c - 1]![1]) {
             ring.splice(c, 1);
           }
         }
@@ -235,6 +347,7 @@ function activateSplitMode() {
   gridSnap = new Snap({ source: gridSnapSource });
 
   drawLine.on('drawend', (event) => {
+    saveSnapshot();
     splitPolygon(event.feature);
     // Clear the split line after clipping
     setTimeout(() => splitSource.clear(), 0);
@@ -256,6 +369,7 @@ function activateDeleteMode() {
       layerFilter: (layer) => layer === editLayer,
     });
     if (feature) {
+      saveSnapshot();
       editSource.removeFeature(feature as Feature);
     }
   };
@@ -313,6 +427,7 @@ function activateMergeMode() {
     // Second click — merge with target
     const merged = mergeFeatures(mergeTarget, feature);
     if (merged) {
+      saveSnapshot();
       editSource.removeFeature(mergeTarget);
       editSource.removeFeature(feature);
       editSource.addFeature(merged);
@@ -347,6 +462,7 @@ export function initEdit(mapInstance: Map) {
 
 function importGeoJSON(geojson: object) {
   if (!map) return;
+  saveSnapshot();
   const features = format.readFeatures(geojson, {
     featureProjection: map.getView().getProjection(),
   });
@@ -361,16 +477,6 @@ function importGeoJSON(geojson: object) {
       duration: 500,
     });
   }
-}
-
-function splitAtGridBoundary(gridCellFeature: Feature) {
-  const geom = gridCellFeature.getGeometry();
-  if (!geom || geom.getType() !== 'Polygon') return;
-  const polygon = geom as Polygon;
-  const ring = polygon.getLinearRing(0);
-  if (!ring) return;
-  const lineFeature = new OlFeature(new LineString(ring.getCoordinates()));
-  splitPolygon(lineFeature);
 }
 
 function exportGeoJSON(gridCellId: string) {
@@ -434,8 +540,9 @@ export function useEdit() {
     editMode,
     editSource,
     gridSnapSource,
+    canUndo,
+    undo,
     importGeoJSON,
-    splitAtGridBoundary,
     exportGeoJSON,
   };
 }
