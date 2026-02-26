@@ -81,7 +81,12 @@ const enableGridCellSelection = (event: MapBrowserEvent) => {
   }
 };
 
-export function initGrid(layer: VectorTileLayer, map: Map, mapGroup: LayerGroup) {
+export function initGrid(
+  layer: VectorTileLayer,
+  map: Map,
+  mapGroup: LayerGroup,
+  initialGridCellId?: string,
+) {
   grid = layer;
   map.on('rendercomplete', updateGridVisibility);
   map.on('singleclick', (event) => {
@@ -89,6 +94,34 @@ export function initGrid(layer: VectorTileLayer, map: Map, mapGroup: LayerGroup)
     enableGridCellSelection(event);
     selectGridCell(event, mapGroup);
   });
+
+  // Restore grid cell selection from hash
+  if (initialGridCellId) {
+    selectGridCellById(initialGridCellId, map, mapGroup);
+  }
+}
+
+function selectGridCellById(id: string, map: Map, mapGroup: LayerGroup) {
+  // Set the feature state immediately for styling
+  setFeatureState(mapGroup, { source: 'ftw-grid', id }, { selected: true });
+  selectedGridCellId.value = id;
+
+  // Wait for the grid layer to render, then find the feature for snap/split
+  const findFeature = () => {
+    if (!grid) return;
+    const features = grid.getFeaturesInExtent(map.getView().calculateExtent());
+    const feature = features.find((f) => f.get('id') === id);
+    if (feature) {
+      gridSnapSource.clear();
+      const olFeature = toFeature(feature as RenderFeature);
+      gridSnapSource.addFeature(olFeature);
+      splitAtGridBoundary(olFeature);
+    } else {
+      // Grid tiles may not be loaded yet, retry after next render
+      map.once('rendercomplete', findFeature);
+    }
+  };
+  map.once('rendercomplete', findFeature);
 }
 
 export function useGrid() {
