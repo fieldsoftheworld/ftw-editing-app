@@ -8,7 +8,7 @@ import type { FeatureLike } from 'ol/Feature';
 import RenderFeature, { toFeature } from 'ol/render/Feature';
 import { useEdit } from './useEdit';
 
-const { editMode, gridSnapSource } = useEdit();
+const { editMode, gridSnapSource, splitAtGridBoundary } = useEdit();
 
 const gridVisible = ref(false);
 const selectedGridCellId = ref<string | undefined>(undefined);
@@ -63,7 +63,9 @@ const selectGridCell = async (event: MapBrowserEvent, mapGroup: LayerGroup) => {
   selectedGridCellId.value = feature.get('id');
   setFeatureState(mapGroup, { source: 'ftw-grid', id: feature.get('id') }, { selected: true });
   gridSnapSource.clear();
-  gridSnapSource.addFeature(toFeature(feature as RenderFeature));
+  const olFeature = toFeature(feature as RenderFeature);
+  gridSnapSource.addFeature(olFeature);
+  splitAtGridBoundary(olFeature);
   zoomToFeature(map, feature);
 };
 
