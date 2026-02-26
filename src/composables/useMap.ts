@@ -7,6 +7,7 @@ import { register as registerPMTilesProtocol } from 'pmtiles-protocol';
 import type VectorTileLayer from 'ol/layer/VectorTile';
 import { initGrid } from './useGrid';
 import { initEdit } from './useEdit';
+import { initHash } from './useHash';
 import RenderFeature from 'ol/render/Feature';
 
 registerPMTilesProtocol();
@@ -19,11 +20,26 @@ RenderFeature.prototype.getId = function () {
 
 let map: Map;
 const mapGroup = new Group();
-apply(mapGroup, './style.json').then(() => {
+
+function onStyleLoaded(gridCellId?: string) {
   const grid = getLayer(mapGroup, 'ftw-grid') as VectorTileLayer;
-  initGrid(grid, map, mapGroup);
+  initGrid(grid, map, mapGroup, gridCellId);
   initEdit(map);
+}
+
+apply(mapGroup, './style.json').then(() => {
+  // initHash must be called after map is created but style may load before or after
+  // We store the gridCellId and pass it through on style load
+  if (map) {
+    const { gridCellId } = initHash(map);
+    onStyleLoaded(gridCellId);
+  } else {
+    // Style loaded before map was created - will be handled in createMapInstance
+    pendingStyleLoad = true;
+  }
 });
+
+let pendingStyleLoad = false;
 
 function createMapInstance() {
   const map = new Map({
@@ -35,6 +51,11 @@ function createMapInstance() {
     }),
   });
   map.addControl(new ScaleLine());
+  if (pendingStyleLoad) {
+    const { gridCellId } = initHash(map);
+    onStyleLoaded(gridCellId);
+    pendingStyleLoad = false;
+  }
   return map;
 }
 
