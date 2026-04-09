@@ -40,11 +40,11 @@ jobs:
 
       - name: Deploy to /dev/
         run: |
-          cp -r dist /tmp/deploy-dist
           git fetch origin gh-pages
-          git checkout gh-pages
-          rm -rf dev
-          cp -r /tmp/deploy-dist dev
-          git add -A
-          git diff --staged --quiet || git commit -m "Deploy dev ${{ github.sha }}"
-          git push origin gh-pages
+          git worktree add /tmp/gh-pages gh-pages
+          rm -rf /tmp/gh-pages/dev
+          cp -r dist /tmp/gh-pages/dev
+          git -C /tmp/gh-pages add -A
+          git -C /tmp/gh-pages diff --staged --quiet || git -C /tmp/gh-pages commit -m "Deploy dev ${{ github.sha }}"
+          git -C /tmp/gh-pages push origin gh-pages
+          git worktree remove /tmp/gh-pages
