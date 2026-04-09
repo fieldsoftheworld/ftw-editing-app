@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy dev to GitHub Pages
 
 on:
   push:
@@ -7,18 +7,10 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
-
-env:
-  VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,14 +33,18 @@ jobs:
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./dist/
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy to /dev/
+        run: |
+          cp -r dist /tmp/deploy-dist
+          git fetch origin gh-pages
+          git checkout gh-pages
+          rm -rf dev
+          cp -r /tmp/deploy-dist dev
+          git add -A
+          git diff --staged --quiet || git commit -m "Deploy dev ${{ github.sha }}"
+          git push origin gh-pages

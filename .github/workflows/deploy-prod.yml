@@ -1,0 +1,51 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy to /
+        run: |
+          cp -r dist /tmp/deploy-dist
+          git fetch origin gh-pages
+          git checkout gh-pages
+          find . -maxdepth 1 ! -name 'dev' ! -name '.git' ! -name '.' -exec rm -rf {} +
+          cp -r /tmp/deploy-dist/. .
+          touch .nojekyll
+          git add -A
+          git diff --staged --quiet || git commit -m "Deploy ${{ github.ref_name }}"
+          git push origin gh-pages
