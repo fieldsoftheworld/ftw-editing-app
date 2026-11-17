@@ -8,6 +8,7 @@ import type VectorTileLayer from 'ol/layer/VectorTile';
 import { initGrid } from './useGrid';
 import { initEdit } from './useEdit';
 import { initHash } from './useHash';
+import { createLabelLayer } from '@/layers/LabelLayer';
 import RenderFeature from 'ol/render/Feature';
 
 registerPMTilesProtocol();
@@ -23,6 +24,7 @@ const mapGroup = new Group();
 
 function onStyleLoaded(gridCellId?: string) {
   const grid = getLayer(mapGroup, 'ftw-grid') as VectorTileLayer;
+  mapGroup.getLayers().push(createLabelLayer());
   initGrid(grid, map, mapGroup, gridCellId);
   initEdit(map);
 }
