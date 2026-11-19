@@ -7,6 +7,7 @@ import { register as registerPMTilesProtocol } from 'pmtiles-protocol';
 import type VectorTileLayer from 'ol/layer/VectorTile';
 import { initGrid } from './useGrid';
 import { initEdit } from './useEdit';
+import { initTriage } from './useTriage';
 import { initHash } from './useHash';
 import { createLabelLayer } from '@/layers/LabelLayer';
 import RenderFeature from 'ol/render/Feature';
@@ -27,6 +28,7 @@ function onStyleLoaded(gridCellId?: string) {
   mapGroup.getLayers().push(createLabelLayer());
   initGrid(grid, map, mapGroup, gridCellId);
   initEdit(map);
+  initTriage(map);
 }
 
 apply(mapGroup, './style.json').then(() => {

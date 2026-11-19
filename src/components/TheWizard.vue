@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import {
+  mdiContentCut,
   mdiDeleteOutline,
   mdiDownload,
   mdiDrawPen,
@@ -12,9 +13,18 @@ import {
 } from '@mdi/js';
 import { useGrid } from '@/composables/useGrid';
 import { useEdit } from '@/composables/useEdit';
+import { OUTCOME_COLORS, useTriage } from '@/composables/useTriage';
+import { OUTCOMES } from '@/triage/shapeTriage';
 
 const { gridVisible, selectedGridCellId } = useGrid();
 const { editMode, importGeoJSON, exportGeoJSON, canUndo, undo } = useEdit();
+const { triageEnabled, triageRunning, counts, flagged, zoomToField, repairField, deleteField } =
+  useTriage();
+
+function fieldLabel(feature: { get(key: string): unknown; getId(): unknown }) {
+  const id = feature.get('id') ?? feature.getId();
+  return id === undefined || id === null ? '' : `${id} · `;
+}
 
 const panel = ref<string[]>([]);
 const sourceChosen = ref(false);
@@ -118,7 +128,10 @@ function openFilePicker() {
                 />
               </template>
             </v-tooltip>
-            <v-tooltip text="Split fields" location="bottom">
+            <v-tooltip
+              text="Split fields (draw a line, or click a suggested cut)"
+              location="bottom"
+            >
               <template v-slot:activator="{ props }">
                 <v-btn
                   :icon="mdiVectorLine"
@@ -163,6 +176,84 @@ function openFilePicker() {
               </template>
             </v-tooltip>
           </div>
+          <div class="mt-4">
+            <v-switch
+              v-model="triageEnabled"
+              label="Shape checks"
+              color="primary"
+              density="compact"
+              hide-details
+            />
+            <template v-if="triageEnabled">
+              <v-progress-linear v-if="triageRunning" indeterminate color="primary" class="mb-2" />
+              <div class="d-flex flex-wrap ga-1">
+                <v-chip
+                  v-for="outcome in OUTCOMES"
+                  :key="outcome"
+                  :color="OUTCOME_COLORS[outcome]"
+                  size="small"
+                  variant="tonal"
+                >
+                  {{ outcome }}: {{ counts[outcome] }}
+                </v-chip>
+              </div>
+              <v-list
+                v-if="flagged.length"
+                density="compact"
+                bg-color="transparent"
+                class="flagged-list mt-2"
+              >
+                <v-list-item
+                  v-for="item in flagged"
+                  :key="item.id"
+                  :title="fieldLabel(item.feature) + item.result.outcome"
+                  :subtitle="item.result.reason"
+                  @click="zoomToField(item.feature)"
+                >
+                  <template v-slot:prepend>
+                    <div
+                      class="outcome-dot mr-3"
+                      :style="{ background: OUTCOME_COLORS[item.result.outcome] }"
+                    />
+                  </template>
+                  <template v-if="item.result.outcome === 'exclude'" v-slot:append>
+                    <v-tooltip text="Delete this field (undo restores it)" location="right">
+                      <template v-slot:activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          :icon="mdiDeleteOutline"
+                          aria-label="Delete"
+                          size="small"
+                          variant="tonal"
+                          color="error"
+                          @click.stop="deleteField(item.feature)"
+                        />
+                      </template>
+                    </v-tooltip>
+                  </template>
+                  <template v-else-if="item.result.cuts.length" v-slot:append>
+                    <v-tooltip text="Show the suggested cuts with the split tool" location="right">
+                      <template v-slot:activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          :icon="mdiContentCut"
+                          aria-label="Split"
+                          size="small"
+                          variant="tonal"
+                          @click.stop="repairField()"
+                        />
+                      </template>
+                    </v-tooltip>
+                  </template>
+                </v-list-item>
+              </v-list>
+              <div class="text-caption text-medium-emphasis mt-2">
+                Exploratory proposals, not confirmed errors. Dashed magenta lines are suggested
+                cuts: with the split tool, click one to split along it. After each split, the
+                resulting fields are checked again.
+              </div>
+            </template>
+          </div>
         </v-expansion-panel-text>
       </v-expansion-panel>
 
@@ -202,6 +293,23 @@ function openFilePicker() {
 
 .pointer-events-auto {
   pointer-events: auto;
+}
+
+.flagged-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.flagged-list :deep(.v-list-item-subtitle) {
+  white-space: normal;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
+.outcome-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
 }
 
 :deep(.v-expansion-panels) {

@@ -4,19 +4,19 @@ import VectorLayer from 'ol/layer/Vector';
 import Draw from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
 import Snap from 'ol/interaction/Snap';
+import type Interaction from 'ol/interaction/Interaction';
 import { Fill, Stroke, Style } from 'ol/style';
 import GeoJSON from 'ol/format/GeoJSON';
-import type {
-  LineString as GeoJSONLineString,
-  Polygon as GeoJSONPolygon,
-  MultiPolygon as GeoJSONMultiPolygon,
-} from 'geojson';
+import type { Polygon as GeoJSONPolygon, MultiPolygon as GeoJSONMultiPolygon } from 'geojson';
 import polygonClipping from 'polygon-clipping';
 import type { Feature } from 'ol';
-import type { Polygon } from 'ol/geom';
+import { Feature as OlFeature } from 'ol';
+import { Polygon } from 'ol/geom';
+import type { LineString, MultiPolygon } from 'ol/geom';
+import { splitPolygonByLine } from '@/geometry/splitPolygon';
 import type Map from 'ol/Map';
 import type MapBrowserEvent from 'ol/MapBrowserEvent';
-import { isEmpty } from 'ol/extent';
+import { intersects, isEmpty } from 'ol/extent';
 
 export type EditMode = 'draw' | 'split' | 'delete' | 'merge' | null;
 
@@ -84,6 +84,20 @@ let deleteClickHandler: ((event: MapBrowserEvent<PointerEvent>) => void) | undef
 let mergeClickHandler: ((event: MapBrowserEvent<PointerEvent>) => void) | undefined;
 let mergeTarget: Feature | undefined;
 
+// Extra interactions active in split mode (e.g. one-click suggested cuts). They are
+// added after the draw interaction, so they see map events before it does.
+const splitModeInteractions: Interaction[] = [];
+let splitSketching = false;
+
+function registerSplitModeInteraction(interaction: Interaction) {
+  splitModeInteractions.push(interaction);
+}
+
+/** Whether a split line is currently being drawn. */
+function isSplitSketching() {
+  return splitSketching;
+}
+
 const mergeHighlightStyle = [
   new Style({
     stroke: new Stroke({ color: 'rgba(0, 0, 0, 0.7)', width: 4 }),
@@ -118,6 +132,13 @@ function removeInteractions() {
     map.removeInteraction(gridSnap);
     gridSnap = undefined;
   }
+  for (const interaction of splitModeInteractions) {
+    if (map.getInteractions().getArray().includes(interaction)) {
+      map.removeInteraction(interaction);
+      map.getTargetElement()?.style.setProperty('cursor', '');
+    }
+  }
+  splitSketching = false;
   if (deleteClickHandler) {
     map.un('singleclick', deleteClickHandler as never);
     deleteClickHandler = undefined;
@@ -152,182 +173,90 @@ function activateDrawMode() {
   map.addInteraction(gridSnap);
 }
 
-/**
- * Create a buffer polygon around a line by unioning per-segment rectangles.
- * Robust against sharp turns (no miter issues) and duplicate vertices.
- */
-function bufferLine(
-  lineCoords: number[][],
-  distance: number,
-): polygonClipping.MultiPolygon | undefined {
-  // Remove consecutive duplicate vertices
-  const coords: number[][] = [lineCoords[0]!];
-  for (let i = 1; i < lineCoords.length; i++) {
-    const prev = coords[coords.length - 1]!;
-    const curr = lineCoords[i]!;
-    if (curr[0] !== prev[0] || curr[1] !== prev[1]) {
-      coords.push(curr);
-    }
-  }
-  if (coords.length < 2) return undefined;
+/** A feature's properties without its geometry. */
+function featureProperties(feature: Feature): Record<string, unknown> {
+  const properties = feature.getProperties();
+  delete properties[feature.getGeometryName()];
+  return properties;
+}
 
-  // Create a rectangle for each segment
-  const rectangles: polygonClipping.Polygon[] = [];
-  for (let i = 0; i < coords.length - 1; i++) {
-    const x1 = coords[i]![0]!;
-    const y1 = coords[i]![1]!;
-    const x2 = coords[i + 1]![0]!;
-    const y2 = coords[i + 1]![1]!;
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0) continue;
-    const nx = (-dy / len) * distance;
-    const ny = (dx / len) * distance;
-    // Extend the rectangle by half the buffer width along the segment direction
-    const ex = (dx / len) * distance;
-    const ey = (dy / len) * distance;
-    const rect: polygonClipping.Polygon = [
-      [
-        [x1 - ex + nx, y1 - ey + ny],
-        [x2 + ex + nx, y2 + ey + ny],
-        [x2 + ex - nx, y2 + ey - ny],
-        [x1 - ex - nx, y1 - ey - ny],
-        [x1 - ex + nx, y1 - ey + ny],
-      ],
-    ];
-    rectangles.push(rect);
-  }
+// Field each split result came from, e.g. to carry over its suggested cuts.
+const splitParents = new WeakMap<Feature, Feature>();
 
-  if (rectangles.length === 0) return undefined;
-  if (rectangles.length === 1) return [rectangles[0]!];
-  return polygonClipping.union(rectangles[0]!, ...rectangles.slice(1));
+function getSplitParent(feature: Feature): Feature | undefined {
+  return splitParents.get(feature);
+}
+
+/** Bijective base-26 suffix: 0 -> a, 25 -> z, 26 -> aa, ... */
+function idSuffix(index: number): string {
+  let suffix = '';
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    suffix = String.fromCharCode(97 + ((n - 1) % 26)) + suffix;
+  }
+  return suffix;
 }
 
 /**
- * Snap a point to the nearest position on a polyline if within threshold.
- * Modifies the point in place so that vertices on both sides of the split
- * gap collapse to the exact same coordinates on the split line.
+ * Create a feature for a split result, keeping the parent's properties. When the
+ * parent was split into several parts, ids get a letter suffix ("3" -> "3a", "3b").
  */
-function snapToLine(point: number[], lineCoords: number[][], thresholdSq: number): void {
-  let minDistSq = Infinity;
-  let closestX = 0;
-  let closestY = 0;
-
-  for (let i = 0; i < lineCoords.length - 1; i++) {
-    const x1 = lineCoords[i]![0]!;
-    const y1 = lineCoords[i]![1]!;
-    const x2 = lineCoords[i + 1]![0]!;
-    const y2 = lineCoords[i + 1]![1]!;
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const lenSq = dx * dx + dy * dy;
-    const t =
-      lenSq === 0
-        ? 0
-        : Math.max(0, Math.min(1, ((point[0]! - x1) * dx + (point[1]! - y1) * dy) / lenSq));
-    const px = x1 + t * dx;
-    const py = y1 + t * dy;
-    const distSq = (point[0]! - px) ** 2 + (point[1]! - py) ** 2;
-    if (distSq < minDistSq) {
-      minDistSq = distSq;
-      closestX = px;
-      closestY = py;
-    }
+function splitChild(parent: Feature, geometry: Polygon, index?: number): Feature<Polygon> {
+  const child = new OlFeature(geometry);
+  const properties = featureProperties(parent);
+  const suffix = index === undefined ? '' : idSuffix(index);
+  if (properties.id !== undefined && properties.id !== null) {
+    properties.id = `${properties.id}${suffix}`;
   }
-
-  if (minDistSq <= thresholdSq) {
-    point[0] = closestX;
-    point[1] = closestY;
-  }
+  child.setProperties(properties);
+  const id = parent.getId();
+  if (id !== undefined) child.setId(`${id}${suffix}`);
+  splitParents.set(child, parent);
+  return child;
 }
 
-function splitPolygon(splitFeature: Feature) {
-  const lineGeom = splitFeature.getGeometry();
-  if (!lineGeom || lineGeom.getType() !== 'LineString') return;
+/** Order split parts west to east, then north to south, for stable id suffixes. */
+function compareParts(a: number[][][], b: number[][][]): number {
+  const minX = (p: number[][][]) => Math.min(...p[0]!.map((c) => c[0]!));
+  const maxY = (p: number[][][]) => Math.max(...p[0]!.map((c) => c[1]!));
+  return minX(a) - minX(b) || maxY(b) - maxY(a);
+}
 
-  // Write the line as GeoJSON in EPSG:4326 for polygon-clipping
-  const lineGeoJSON = format.writeFeatureObject(splitFeature, {
-    featureProjection: map!.getView().getProjection(),
-  });
-  const lineCoords = (lineGeoJSON.geometry as GeoJSONLineString).coordinates;
-
-  // Create a thin buffer polygon around the line
-  const bufferDistance = 1e-8;
-  const bufferPoly = bufferLine(lineCoords, bufferDistance);
-  if (!bufferPoly) return;
-  const snapThresholdSq = (bufferDistance * 3) ** 2;
+/**
+ * Split polygons along a line (in map projection) with an exact JSTS split. With
+ * `targets`, only those features are split; otherwise every feature the line
+ * splits. Features the line does not split stay unchanged. A split MultiPolygon
+ * is replaced by all of its parts.
+ */
+function splitPolygon(lineGeom: LineString, targets?: Feature[]) {
+  const line = lineGeom.getCoordinates();
+  const lineExtent = lineGeom.getExtent();
 
   const featuresToAdd: Feature[] = [];
   const featuresToRemove: Feature[] = [];
 
-  for (const feature of editSource.getFeatures()) {
+  for (const feature of targets ?? editSource.getFeatures()) {
     const geom = feature.getGeometry();
     if (!geom) continue;
     const type = geom.getType();
     if (type !== 'Polygon' && type !== 'MultiPolygon') continue;
+    if (!intersects(geom.getExtent(), lineExtent)) continue;
 
-    const featureGeoJSON = format.writeFeatureObject(feature, {
-      featureProjection: map!.getView().getProjection(),
+    const polygons =
+      type === 'Polygon'
+        ? [(geom as Polygon).getCoordinates()]
+        : (geom as MultiPolygon).getCoordinates();
+    let split = false;
+    const parts = polygons.flatMap((rings) => {
+      const result = splitPolygonByLine(rings, line);
+      if (result) split = true;
+      return result ?? [rings];
     });
+    if (!split) continue;
 
-    let polyCoords: number[][][][];
-    if (featureGeoJSON.geometry.type === 'Polygon') {
-      polyCoords = [(featureGeoJSON.geometry as GeoJSONPolygon).coordinates];
-    } else {
-      polyCoords = (featureGeoJSON.geometry as GeoJSONMultiPolygon).coordinates;
-    }
-
-    const result = polygonClipping.difference(
-      polyCoords as polygonClipping.MultiPolygon,
-      bufferPoly,
-    );
-
-    if (result.length === 0) continue;
-
-    // Snap vertices near the split line back onto it to collapse the buffer gap,
-    // so result polygons share exact boundary vertices along the split.
-    for (const poly of result) {
-      for (let r = poly.length - 1; r >= 0; r--) {
-        const ring = poly[r]!;
-        for (const point of ring) {
-          snapToLine(point, lineCoords, snapThresholdSq);
-        }
-        // Remove consecutive duplicate vertices
-        for (let c = ring.length - 1; c > 0; c--) {
-          if (ring[c]![0] === ring[c - 1]![0] && ring[c]![1] === ring[c - 1]![1]) {
-            ring.splice(c, 1);
-          }
-        }
-        if (ring.length < 4) {
-          poly.splice(r, 1);
-        }
-      }
-    }
-
-    // Only process if the split actually produced multiple polygons
-    if (result.length <= 1 && polyCoords.length <= 1) {
-      // Single polygon result — still update geometry in case edges were trimmed
-      if (result.length === 1) {
-        const resultFeature = format.readFeature(
-          { type: 'Feature', geometry: { type: 'Polygon', coordinates: result[0] } },
-          { featureProjection: map!.getView().getProjection() },
-        ) as Feature<Polygon>;
-        featuresToRemove.push(feature);
-        featuresToAdd.push(resultFeature);
-      }
-      continue;
-    }
-
-    // Multiple polygons — create individual features for each
     featuresToRemove.push(feature);
-    for (const poly of result) {
-      const resultFeature = format.readFeature(
-        { type: 'Feature', geometry: { type: 'Polygon', coordinates: poly } },
-        { featureProjection: map!.getView().getProjection() },
-      ) as Feature<Polygon>;
-      featuresToAdd.push(resultFeature);
-    }
+    parts
+      .sort(compareParts)
+      .forEach((rings, i) => featuresToAdd.push(splitChild(feature, new Polygon(rings), i)));
   }
 
   for (const f of featuresToRemove) {
@@ -346,9 +275,12 @@ function activateSplitMode() {
   snap = new Snap({ source: editSource });
   gridSnap = new Snap({ source: gridSnapSource });
 
+  drawLine.on('drawstart', () => (splitSketching = true));
+  drawLine.on('drawabort', () => (splitSketching = false));
   drawLine.on('drawend', (event) => {
+    splitSketching = false;
     saveSnapshot();
-    splitPolygon(event.feature);
+    splitPolygon(event.feature.getGeometry() as LineString);
     // Clear the split line after clipping
     setTimeout(() => splitSource.clear(), 0);
   });
@@ -356,6 +288,7 @@ function activateSplitMode() {
   map.addInteraction(drawLine);
   map.addInteraction(snap);
   map.addInteraction(gridSnap);
+  for (const interaction of splitModeInteractions) map.addInteraction(interaction);
 }
 
 function activateDeleteMode() {
@@ -454,6 +387,21 @@ watch(editMode, (mode) => {
   }
 });
 
+/**
+ * Replace a feature by precomputed parts (polygon ring coordinates in the map
+ * projection) that exactly partition it, e.g. a validated suggested cut. Ids and
+ * properties are handled as with the split tool.
+ */
+function splitFeatureInto(feature: Feature, parts: number[][][][]) {
+  if (!map || !editSource.hasFeature(feature) || parts.length < 2) return;
+  saveSnapshot();
+  const children = [...parts]
+    .sort(compareParts)
+    .map((rings, i) => splitChild(feature, new Polygon(rings), i));
+  editSource.removeFeature(feature);
+  editSource.addFeatures(children);
+}
+
 export function initEdit(mapInstance: Map) {
   map = mapInstance;
   map.addLayer(editLayer);
@@ -512,13 +460,21 @@ function exportGeoJSON(gridCellId: string) {
 
     if (clipped.length === 0) continue;
 
-    for (const poly of clipped) {
+    const properties = featureProperties(feature);
+    const id = feature.getId();
+    clipped.sort(compareParts).forEach((poly, i) => {
+      // Clipping to the grid cell can cut a field into parts: keep ids unique.
+      const suffix = clipped.length > 1 ? idSuffix(i) : '';
       exportFeatures.push({
         type: 'Feature',
-        properties: {},
+        ...(id !== undefined ? { id: `${id}${suffix}` } : {}),
+        properties:
+          properties.id !== undefined && properties.id !== null
+            ? { ...properties, id: `${properties.id}${suffix}` }
+            : properties,
         geometry: { type: 'Polygon', coordinates: poly },
       });
-    }
+    });
   }
 
   const geojson = {
@@ -538,8 +494,14 @@ function exportGeoJSON(gridCellId: string) {
 export function useEdit() {
   return {
     editMode,
+    editLayer,
     editSource,
     gridSnapSource,
+    saveSnapshot,
+    splitFeatureInto,
+    registerSplitModeInteraction,
+    getSplitParent,
+    isSplitSketching,
     canUndo,
     undo,
     importGeoJSON,
